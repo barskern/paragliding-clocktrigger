@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	log "github.com/sirupsen/logrus"
+	"github.com/subosito/gotenv"
 	"net/http"
 	"os"
 	"os/signal"
@@ -16,15 +17,18 @@ type slackMsg struct {
 }
 
 func main() {
+	// Load env variables from .env
+	gotenv.Load()
+
 	// Get paragliding url from env
 	paraglidingURL, ok := os.LookupEnv("PARAGLIDING_URL")
 	if !ok {
 		log.Fatal("unable to get environment variable PARAGLIDING_URL")
 	}
 	// Get slack url from env
-	slackURL, ok := os.LookupEnv("SLACK_CLOCK_URL")
+	slackURL, ok := os.LookupEnv("SLACK_WEBHOOK_URL")
 	if !ok {
-		log.Fatal("unable to get environment variable SLACK_CLOCK_URL")
+		log.Fatal("unable to get environment variable SLACK_WEBHOOK_URL")
 	}
 	// Get optional interval from env
 	intervalStr, ok := os.LookupEnv("CLOCK_INTERVAL")
