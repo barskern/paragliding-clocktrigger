@@ -106,9 +106,9 @@ func updateCount(count int) (newCount int, err error) {
 	if newCount > count {
 		var plural string
 		if len(ids)-count > 1 {
-			plural = ""
-		} else {
 			plural = "s"
+		} else {
+			plural = ""
 		}
 		msg := slackMsg{
 			fmt.Sprintf(
