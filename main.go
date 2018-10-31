@@ -83,11 +83,6 @@ func main() {
 				continue
 			}
 			if len(ids) > prevCount {
-				// Decrement prevCount to preform a correct index because index
-				// starts at 0
-				if prevCount > 0 {
-					prevCount--
-				}
 				msg := slackMsg{
 					fmt.Sprintf(
 						"The following new tracks have been added to '%s': %v",
