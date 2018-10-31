@@ -16,28 +16,35 @@ type slackMsg struct {
 	Text string `json:"text"`
 }
 
+var (
+	paraglidingURL string
+	slackURL       string
+	interval       time.Duration
+)
+
 func main() {
+	var err error
+	var ok bool
 	// Load env variables from .env
 	gotenv.Load()
 
 	// Get paragliding url from env
-	paraglidingURL, ok := os.LookupEnv("PARAGLIDING_URL")
+	paraglidingURL, ok = os.LookupEnv("PARAGLIDING_URL")
 	if !ok {
 		log.Fatal("unable to get environment variable PARAGLIDING_URL")
 	}
+
 	// Get slack url from env
-	slackURL, ok := os.LookupEnv("SLACK_WEBHOOK_URL")
+	slackURL, ok = os.LookupEnv("SLACK_WEBHOOK_URL")
 	if !ok {
 		log.Fatal("unable to get environment variable SLACK_WEBHOOK_URL")
 	}
 	// Get optional interval from env
 	intervalStr, ok := os.LookupEnv("CLOCK_INTERVAL")
-	var interval time.Duration
-	var err error
 	if ok {
 		interval, err = time.ParseDuration(intervalStr)
 		if err != nil {
-			log.WithField("error", err).Fatalf("invalid interval passed to CLOCK_INTERVAL")
+			log.WithField("error", err).Fatal("invalid interval passed to CLOCK_INTERVAL")
 		}
 	}
 	if interval == 0 {
@@ -56,8 +63,17 @@ func main() {
 		"paragliding_url": paraglidingURL,
 	}).Info("initializing clock trigger")
 
-	prevCount := 0
-	b := new(bytes.Buffer)
+	log.WithField("url", paraglidingURL).Info("getting initial count of ids")
+	ids, err := getIDsFrom(paraglidingURL)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"url":   paraglidingURL,
+		}).Fatal("unable to get initial ids")
+	}
+
+	count := len(ids)
+	log.WithField("count", count).Info("initial count")
 	for {
 		select {
 		case <-sigint:
@@ -65,47 +81,72 @@ func main() {
 			return
 		case <-ticker.C:
 			log.Info("running ticker iteration")
+			count, err = updateCount(count)
 
-			res, err := http.Get(paraglidingURL + "/paragliding/api/track")
 			if err != nil {
-				log.WithFields(log.Fields{
-					"error": err,
-					"url":   paraglidingURL + "/paragliding/api/track",
-				}).Error("unable to request ids from url")
+				log.WithField("error", err).Error("iteration failed")
 				continue
 			}
-
-			var ids []uint
-			err = json.NewDecoder(res.Body).Decode(&ids)
-			res.Body.Close()
-			if err != nil {
-				log.WithField("error", err).Error("unable to decode json response")
-				continue
-			}
-			if len(ids) > prevCount {
-				msg := slackMsg{
-					fmt.Sprintf(
-						"The following new tracks have been added to '%s': %v",
-						paraglidingURL,
-						ids[prevCount:],
-					),
-				}
-
-				// Update prevCount to current count
-				prevCount = len(ids)
-
-				json.NewEncoder(b).Encode(msg)
-				log.WithField("msg", msg).Info("sending updated information to hook")
-
-				res, err = http.Post(slackURL, "application/json", b)
-				if err != nil {
-					log.WithFields(log.Fields{
-						"error": err,
-						"url":   slackURL,
-					}).Error("unable to post request to url")
-				}
-			}
-
 		}
 	}
+}
+
+func updateCount(count int) (newCount int, err error) {
+	ids, err := getIDsFrom(paraglidingURL)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"url":   paraglidingURL,
+		}).Error("unable to get ids")
+		return
+	}
+	newCount = len(ids)
+	log.WithField("count", newCount).Info("new count")
+
+	if newCount > count {
+		var plural string
+		if len(ids)-count > 1 {
+			plural = ""
+		} else {
+			plural = "s"
+		}
+		msg := slackMsg{
+			fmt.Sprintf(
+				"The following new track%s have been added to '%s': %v",
+				plural,
+				paraglidingURL,
+				ids[count:],
+			),
+		}
+
+		b := new(bytes.Buffer)
+		json.NewEncoder(b).Encode(msg)
+		log.WithField("msg", msg).Info("sending updated information to hook")
+
+		_, err := http.Post(slackURL, "application/json", b)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"error": err,
+				"url":   slackURL,
+			}).Error("unable to post request to url")
+		}
+	}
+	return
+}
+
+func getIDsFrom(url string) (ids []uint, err error) {
+	res, err := http.Get(url)
+	if err != nil {
+		log.WithFields(log.Fields{
+			"error": err,
+			"url":   url,
+		}).Error("unable to request ids from url")
+	}
+
+	err = json.NewDecoder(res.Body).Decode(&ids)
+	defer res.Body.Close()
+	if err != nil {
+		log.WithField("error", err).Error("unable to decode json response")
+	}
+	return
 }
